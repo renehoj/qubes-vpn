@@ -1,0 +1,13 @@
+# Started and stopped by the agent (vpn.Connect, vpn.Disconnect), never enabled.
+# The agent writes /run/qubes-vpn/vpn-wg.conf from the chosen profile first;
+# wg-quick names the interface after the file: vpn-wg.
+[Unit]
+Description=Qubes VPN: WireGuard tunnel
+After=network-online.target qubes-vpn-killswitch.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/wg-quick up /run/qubes-vpn/vpn-wg.conf
+ExecStop=/usr/bin/wg-quick down /run/qubes-vpn/vpn-wg.conf

@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -sE
+"""The VPN agent's launcher; install.sh fills in where the package went."""
+import sys
+
+sys.path.insert(0, "@LIBDIR@")
+
+from qubes_vpn_agent.service import main  # noqa: E402
+
+sys.exit(main())

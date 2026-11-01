@@ -1,0 +1,17 @@
+# The kill switch and DNS table (qubes_vpn_agent.killswitch), before any
+# downstream qube can send anything. Runs only in qubes with the qvm-service
+# "vpn-agent" turned on (qvm-service <qube> vpn-agent on).
+[Unit]
+Description=Qubes VPN: kill switch and DNS rules
+ConditionPathExists=/run/qubes-service/vpn-agent
+After=qubes-iptables.service
+Before=qubes-network-uplink.service qubes-firewall.service network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@AGENT@ killswitch
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run qubes-vpn-cli straight from a source checkout, without installing it.
+#
+# The CLI uses package-relative imports, so it has to be run as a module
+# with the checkout on sys.path (same reason as qubes-firewall's bin/ wrapper).
+# After a real install, use the `qubes-vpn-cli` entry point instead.
+
+set -eu
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+
+exec python3 -m qubes_vpn.cli "$@"

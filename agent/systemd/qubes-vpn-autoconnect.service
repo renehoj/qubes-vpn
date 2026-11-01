@@ -1,0 +1,13 @@
+# Connects to autoconnect=<profile> in /rw/config/vpn/agent.conf, if set.
+[Unit]
+Description=Qubes VPN: connect at boot
+ConditionPathExists=/run/qubes-service/vpn-agent
+After=qubes-vpn-killswitch.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@AGENT@ autoconnect
+
+[Install]
+WantedBy=multi-user.target

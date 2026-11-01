@@ -1,0 +1,13 @@
+/* Stand-in for the stock menu's colour definitions, used only when the
+   `qubes_menu` package (qubes-desktop-linux-menu) is not installed -- i.e. when
+   developing off dom0 with --mock. In dom0 the stock qubes-menu-light.css /
+   qubes-menu-dark.css are loaded instead, and this file is never read.
+
+   Defines exactly the names vpn.css uses. Dark, Nord-like values. */
+
+@define-color outer-background #2e3440;
+@define-color left-background #3b4252;
+@define-color separator #4c566a;
+@define-color buttons-bg #8f9bb3;
+@define-color text-color #eceff4;
+@define-color text-color-contrast #d8dee9;

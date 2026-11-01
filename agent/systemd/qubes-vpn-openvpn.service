@@ -1,0 +1,24 @@
+# Started and stopped by the agent (vpn.Connect, vpn.Disconnect), never enabled.
+# The agent writes PROFILE, PROFILE_DIR and AUTH_ARGS (--auth-user-pass <file>,
+# or nothing) to /run/qubes-vpn/openvpn.env first.
+# The options after --config override the profile's own: the credentials, the
+# interface name the kill switch expects, the management socket the agent
+# reads, the agent as up/down script (DNS), and no pushed IPv6.
+[Unit]
+Description=Qubes VPN: OpenVPN tunnel
+After=network-online.target qubes-vpn-killswitch.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+EnvironmentFile=/run/qubes-vpn/openvpn.env
+RuntimeDirectory=openvpn
+RuntimeDirectoryMode=0700
+ExecStart=/usr/sbin/openvpn --suppress-timestamps --cd ${PROFILE_DIR} --config ${PROFILE} $AUTH_ARGS \
+    --dev vpn-tun --dev-type tun \
+    --management /run/openvpn/mgmt.sock unix \
+    --script-security 2 --up "@AGENT@ openvpn-event" --down "@AGENT@ openvpn-event" \
+    --pull-filter ignore route-ipv6 --pull-filter ignore ifconfig-ipv6 \
+    --pull-filter ignore "dhcp-option DNS6"
+Restart=on-failure
+RestartSec=5

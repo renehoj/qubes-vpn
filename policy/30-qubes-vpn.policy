@@ -1,0 +1,54 @@
+## qubes-vpn: what the vpn-manager qube may do, and nothing more.
+##
+## Install in dom0 as /etc/qubes/policy.d/30-qubes-vpn.policy (see
+## docs/install.md). Qubes 4.2 format:
+##   service  argument  source  target  action  [options]
+## Anything no rule allows is denied. Lower-numbered files are read first.
+##
+## Qubes taken part:
+##   @tag:vpn          VPN qubes (provides_network=True, agent installed)
+##   @tag:vpn-client   qubes the manager may move between net qubes
+
+## The agents in the VPN qubes (agent/qubes-rpc). They run as root there:
+## the tunnels, nft and /rw/config/vpn need it. autostart=no: asking a
+## halted VPN qube must not start it; the manager starts qubes only through
+## admin.vm.Start, when asked to.
+vpn.Status        *  vpn-manager  @tag:vpn  allow user=root autostart=no
+vpn.Stats         *  vpn-manager  @tag:vpn  allow user=root autostart=no
+vpn.ListProfiles  *  vpn-manager  @tag:vpn  allow user=root autostart=no
+vpn.Connect       *  vpn-manager  @tag:vpn  allow user=root autostart=no
+vpn.Disconnect    *  vpn-manager  @tag:vpn  allow user=root autostart=no
+
+## The qube list. qubesd answers admin.vm.List with only the qubes this
+## policy lets vpn-manager list, so the first line is the call and the next
+## two say which qubes it returns.
+admin.vm.List          *            vpn-manager  @adminvm         allow target=dom0
+admin.vm.List          *            vpn-manager  @tag:vpn         allow target=dom0
+admin.vm.List          *            vpn-manager  @tag:vpn-client  allow target=dom0
+
+## Which list a qube is on, whether it runs, its net qube and address (the
+## address maps vif counters to qubes). Net qube and address of VPN qubes
+## too: chains (VPN over VPN), and a VPN qube behind another one.
+admin.vm.tag.Get       +vpn         vpn-manager  @tag:vpn         allow target=dom0
+admin.vm.tag.Get       +vpn         vpn-manager  @tag:vpn-client  allow target=dom0
+admin.vm.tag.Get       +vpn-client  vpn-manager  @tag:vpn         allow target=dom0
+admin.vm.tag.Get       +vpn-client  vpn-manager  @tag:vpn-client  allow target=dom0
+admin.vm.CurrentState  *            vpn-manager  @tag:vpn         allow target=dom0
+admin.vm.CurrentState  *            vpn-manager  @tag:vpn-client  allow target=dom0
+admin.vm.property.Get  +netvm       vpn-manager  @tag:vpn         allow target=dom0
+admin.vm.property.Get  +netvm       vpn-manager  @tag:vpn-client  allow target=dom0
+admin.vm.property.Get  +ip          vpn-manager  @tag:vpn         allow target=dom0
+admin.vm.property.Get  +ip          vpn-manager  @tag:vpn-client  allow target=dom0
+
+## Starting and stopping VPN qubes.
+admin.vm.Start         *            vpn-manager  @tag:vpn         allow target=dom0
+admin.vm.Shutdown      *            vpn-manager  @tag:vpn         allow target=dom0
+
+## Moving a client qube to another net qube.
+##
+## Known weakness: a policy cannot limit the VALUE written here, so
+## vpn-manager could give a vpn-client qube ANY net qube (sys-net, say), not
+## only a VPN qube. To close that, use the optional dom0 service instead
+## (31-qubes-vpn-setnetvm.policy, dom0/vpn.SetNetvm, netvm_method = service
+## in the manager's config.ini) and delete this line.
+admin.vm.property.Set  +netvm       vpn-manager  @tag:vpn-client  allow target=dom0

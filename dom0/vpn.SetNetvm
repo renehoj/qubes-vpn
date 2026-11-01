@@ -1,0 +1,92 @@
+#!/usr/bin/python3
+"""qrexec service vpn.SetNetvm+<net qube>, in dom0 (optional).
+
+The only qubes-vpn code that may run in dom0, and only if you install it.
+It exists because ``admin.vm.property.Set +netvm`` lets the policy say which
+qubes may be changed, but not to what. Here the new net qube is the
+argument, so ``31-qubes-vpn-setnetvm.policy`` allows it one net qube per line.
+
+Called from vpn-manager as ``qrexec-client-vm <client> vpn.SetNetvm+<netvm>``,
+redirected to dom0 by the policy (``target=dom0``). qrexec tells it:
+
+* ``QREXEC_REQUESTED_TARGET``: the client qube (policy: ``@tag:vpn-client``);
+* ``QREXEC_SERVICE_ARGUMENT``: the new net qube, or ``none``;
+* ``QREXEC_REMOTE_DOMAIN``: the caller, for the log.
+
+It checks once more what the policy checked, and a little more: the client
+is tagged ``vpn-client`` and is not dom0, the net qube exists and provides
+network. qubesd refuses loops and halted net qubes itself. It reads nothing
+from stdin, prints ``result=ok`` or ``result=error`` and ``error=<code>``,
+and logs what it did to the journal.
+
+Install: ``sudo install -m 0755 vpn.SetNetvm /etc/qubes-rpc/vpn.SetNetvm``.
+"""
+
+import os
+import re
+import sys
+import syslog
+
+NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,30}$")
+CLIENT_TAG = "vpn-client"
+NONE = "none"
+
+
+class Refused(Exception):
+    pass
+
+
+def set_netvm(app, client_name, netvm_name):
+    try:
+        client = app.domains[client_name]
+    except KeyError:
+        raise Refused("no-such-qube") from None
+    if client_name == "dom0" or client.klass == "AdminVM":
+        raise Refused("not-a-client")
+    if CLIENT_TAG not in client.tags:
+        raise Refused("not-a-client")
+    if netvm_name == NONE:
+        client.netvm = None
+        return
+    try:
+        netvm = app.domains[netvm_name]
+    except KeyError:
+        raise Refused("no-such-netvm") from None
+    if netvm_name == client_name or not netvm.provides_network:
+        raise Refused("not-a-netvm")
+    client.netvm = netvm
+
+
+def main(environ=None, app=None, out=None):
+    environ = os.environ if environ is None else environ
+    out = out or sys.stdout
+    client = environ.get("QREXEC_REQUESTED_TARGET", "")
+    netvm = environ.get("QREXEC_SERVICE_ARGUMENT", "")
+    caller = environ.get("QREXEC_REMOTE_DOMAIN", "")
+    try:
+        if environ.get("QREXEC_REQUESTED_TARGET_TYPE", "name") != "name" \
+                or not NAME.match(client):
+            raise Refused("bad-target")
+        if netvm != NONE and not NAME.match(netvm):
+            raise Refused("bad-argument")
+        if app is None:
+            import qubesadmin  # pylint: disable=import-outside-toplevel
+            app = qubesadmin.Qubes()
+        set_netvm(app, client, netvm)
+    except Refused as exc:
+        syslog.syslog(syslog.LOG_WARNING, f"vpn.SetNetvm: refused {caller!r}: "
+                                          f"{client!r} -> {netvm!r}: {exc}")
+        out.write(f"result=error\nerror={exc}\n")
+        return 1
+    except Exception as exc:  # pylint: disable=broad-except
+        syslog.syslog(syslog.LOG_ERR, f"vpn.SetNetvm: {client!r} -> {netvm!r} failed: {exc}")
+        out.write("result=error\nerror=qubesd-refused\n")
+        return 1
+    syslog.syslog(syslog.LOG_INFO, f"vpn.SetNetvm: {caller} set the net qube of "
+                                   f"{client} to {netvm}")
+    out.write("result=ok\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

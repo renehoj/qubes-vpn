@@ -1,0 +1,286 @@
+/* qubes-vpn window chrome: qubes-firewall's, which is
+
+   qubes-settings' settings.css (qubes-systemlist's look), loaded
+   the same way: AFTER the stock menu's qubes-menu-light.css /
+   qubes-menu-dark.css (or, off dom0, after fallback-theme.css, which defines the
+   same colour names), so @outer-background, @left-background, @separator,
+   @buttons-bg, @text-color and @text-color-contrast resolve. Opened from
+   qubes-systemlist, the list has already loaded those, and only this file is
+   added.
+
+   @ALPHA@ is substituted by window.py. Every translucent declaration is
+   preceded by its opaque twin, so a GTK that cannot evaluate alpha() still
+   draws the opaque stock look.
+*/
+
+/* The old menu's highlight red; see qubes-launcher's launcher.css for why. */
+@define-color launcher-red #BF616A;
+
+#qubes-vpn-window {
+    background-color: @outer-background;
+    background-color: alpha(@outer-background, @ALPHA@);
+    border: 1px solid @separator;
+    border-radius: 6px;
+}
+
+#qubes-vpn-window .vpn-pane {
+    background-color: @left-background;
+    background-color: alpha(@left-background, @ALPHA@);
+    border-radius: 5px;
+}
+
+/* Title and subtitle: the action dialog's. */
+#qubes-vpn-window .dialog-title {
+    margin: 12px 16px 0 16px;
+    color: @text-color;
+}
+
+#qubes-vpn-window .dialog-subtitle {
+    margin: 2px 16px 6px 16px;
+    color: @buttons-bg;
+}
+
+/* Section headers: the list's column header, a quiet label row. */
+#qubes-vpn-window .section {
+    color: @buttons-bg;
+    border-bottom: 1px solid @separator;
+    padding: 2px 0;
+    margin: 8px 0 4px 0;
+}
+
+#qubes-vpn-window .field-title {
+    color: @text-color;
+}
+
+#qubes-vpn-window .unit,
+#qubes-vpn-window .note,
+#qubes-vpn-window .placeholder {
+    color: @buttons-bg;
+}
+
+#qubes-vpn-window .note {
+    font-size: smaller;
+    margin-top: 6px;
+}
+
+/* Inputs: the search field's frame, red when focused. */
+#qubes-vpn-window combobox button,
+#qubes-vpn-window spinbutton {
+    background-image: none;
+    background-color: @outer-background;
+    color: @text-color-contrast;
+    border: 1px solid @separator;
+    border-radius: 7px;
+    box-shadow: none;
+    min-height: 0;
+    padding: 3px 9px;
+}
+
+#qubes-vpn-window spinbutton {
+    padding: 0;
+}
+
+#qubes-vpn-window spinbutton entry {
+    background: transparent;
+    color: @text-color-contrast;
+    border: none;
+    box-shadow: none;
+    padding: 3px 9px;
+}
+
+#qubes-vpn-window spinbutton button {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    color: @buttons-bg;
+}
+
+#qubes-vpn-window combobox button:focus,
+#qubes-vpn-window spinbutton:focus,
+#qubes-vpn-window spinbutton:focus-within {
+    border-color: @launcher-red;
+}
+
+#qubes-vpn-window combobox button label,
+#qubes-vpn-window combobox cellview {
+    color: @text-color-contrast;
+}
+
+#qubes-vpn-window checkbutton label {
+    color: @text-color;
+}
+
+#qubes-vpn-window checkbutton:focus label {
+    color: @text-color-contrast;
+}
+
+/* The stock stylesheet paints focused images blue (an unscoped `image:focus`
+   rule); clear it inside the inputs, as the list does for its search field. */
+#qubes-vpn-window combobox image,
+#qubes-vpn-window spinbutton image,
+#qubes-vpn-window image:focus {
+    background-image: none;
+    background-color: transparent;
+}
+
+#qubes-vpn-window *:disabled label,
+#qubes-vpn-window .field-title:disabled,
+#qubes-vpn-window combobox:disabled cellview,
+#qubes-vpn-window spinbutton:disabled,
+#qubes-vpn-window spinbutton:disabled entry,
+#qubes-vpn-window spinbutton:disabled button {
+    color: @buttons-bg;
+    opacity: 0.6;
+}
+
+/* Footer: hint or error on the left, Cancel / Save on the right. */
+#qubes-vpn-window .footer {
+    color: @buttons-bg;
+    font-size: smaller;
+    margin: 0 10px;
+}
+
+#qubes-vpn-window .footer.error {
+    color: @launcher-red;
+}
+
+/* Buttons: the action dialog's. Focus is the keyboard's choice and gets the
+   selection colour; hover is fainter. */
+#qubes-vpn-window button.action {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 5px;
+    margin: 0 0 0 4px;
+    padding: 6px 14px;
+    color: @text-color;
+}
+
+#qubes-vpn-window button.action label {
+    color: @text-color;
+}
+
+#qubes-vpn-window button.action:hover {
+    background-color: alpha(@launcher-red, 0.15);
+}
+
+#qubes-vpn-window button.action:focus {
+    background-color: @launcher-red;
+    background-color: alpha(@launcher-red, 0.35);
+}
+
+#qubes-vpn-window button.action.suggested label {
+    font-weight: bold;
+}
+
+#qubes-vpn-window button.action:disabled label {
+    color: @buttons-bg;
+    opacity: 0.6;
+}
+
+/* Text entries: the inputs' frame. */
+#qubes-vpn-window entry {
+    background-image: none;
+    background-color: @outer-background;
+    color: @text-color-contrast;
+    border: 1px solid @separator;
+    border-radius: 7px;
+    box-shadow: none;
+    min-height: 0;
+    padding: 3px 9px;
+}
+
+#qubes-vpn-window entry:focus {
+    border-color: @launcher-red;
+}
+
+#qubes-vpn-window entry:disabled {
+    color: @buttons-bg;
+    opacity: 0.6;
+}
+
+/* The qube and profile lists: the list's grid, with its red selection. */
+#qubes-vpn-window scrolledwindow.qubes-scroller {
+    border: 1px solid @separator;
+    border-radius: 5px;
+}
+
+#qubes-vpn-window treeview.qubes {
+    background-color: transparent;
+    color: @text-color;
+}
+
+#qubes-vpn-window treeview.qubes header button {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    border-bottom: 1px solid @separator;
+    box-shadow: none;
+    color: @buttons-bg;
+    padding: 2px 6px;
+}
+
+#qubes-vpn-window treeview.qubes header button label {
+    color: @buttons-bg;
+}
+
+#qubes-vpn-window treeview.qubes:selected {
+    background-color: @launcher-red;
+    background-color: alpha(@launcher-red, 0.35);
+    color: @text-color-contrast;
+}
+
+#qubes-vpn-window .implicit {
+    color: @buttons-bg;
+    font-style: italic;
+    margin: 4px 6px 0 6px;
+}
+
+#qubes-vpn-window .note {
+    margin-bottom: 6px;
+}
+
+/* Tool buttons under the list: the action buttons, a little tighter. */
+#qubes-vpn-window button.action.tool {
+    margin: 0 4px 0 0;
+    padding: 4px 10px;
+}
+
+/* What the editor or the warnings page wants you to read. */
+#qubes-vpn-window .errors,
+#qubes-vpn-window .warning {
+    color: @launcher-red;
+}
+
+#qubes-vpn-window .errors {
+    margin-top: 8px;
+}
+
+/* -- qubes-vpn's own ----------------------------------------------------- */
+
+/* The tree's expanders: quiet, like the column headers. */
+#qubes-vpn-window treeview.qubes.expander {
+    color: @buttons-bg;
+}
+
+#qubes-vpn-window treeview.qubes.expander:selected {
+    color: @text-color-contrast;
+}
+
+/* The traffic graph under the list: the list's frame. window.py draws
+   download in the launcher red and upload in @buttons-bg, the colours the
+   legend's labels have. */
+#qubes-vpn-window .graph {
+    border: 1px solid @separator;
+    border-radius: 5px;
+}
+
+#qubes-vpn-window .legend-down {
+    color: @launcher-red;
+}
+
+#qubes-vpn-window .legend-up {
+    color: @buttons-bg;
+}

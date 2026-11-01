@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=VPN
+Comment=VPN qubes and which qubes go through them
+Exec=qubes-vpn --tray
+Icon=network-vpn
+Terminal=false
+Categories=Network;System;
+X-GNOME-Autostart-enabled=true

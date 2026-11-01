@@ -1,0 +1,3 @@
+#!/bin/sh
+# qrexec service vpn.Stats: see qubes_vpn_agent.service.
+exec @AGENT@ stats

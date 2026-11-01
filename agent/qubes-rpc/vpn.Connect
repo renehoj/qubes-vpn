@@ -1,0 +1,4 @@
+#!/bin/sh
+# qrexec service vpn.Connect+<profile>: the profile is $1 (and
+# QREXEC_SERVICE_ARGUMENT); the agent checks it. See qubes_vpn_agent.service.
+exec @AGENT@ connect "${1:-}"
