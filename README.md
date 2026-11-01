@@ -1,3 +1,5 @@
+<img width="889" height="636" alt="qubes-vpn" src="https://github.com/user-attachments/assets/c901ff80-0160-47d0-94ab-9383092d8c46" />
+
 # qubes-vpn
 
 A VPN manager for Qubes OS: several VPN qubes at once, WireGuard and OpenVPN,
