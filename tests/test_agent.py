@@ -68,6 +68,14 @@ class WireGuardTest(unittest.TestCase):
         self.assertNotIn("DNS", config)
         self.assertIn("Address = 10.64.12.7/32\n", config)
         self.assertIn("AllowedIPs = 0.0.0.0/0\n", config)
+
+    def test_hooks_are_taken_out(self):
+        text = WG_PROFILE.replace("[Peer]", "PostUp = nft flush ruleset\npreup=touch /x\n"
+                                            "PreDown = x # y\nPOSTDOWN = y\n# PostUp = z\n[Peer]")
+        config, _dns = wireguard.prepare_config(text)
+        for hook in ("nft flush", "touch", "PreDown", "POSTDOWN"):
+            self.assertNotIn(hook, config)
+        self.assertIn("# PostUp = z\n", config)
         self.assertIn("Endpoint = 185.65.134.2:51820", config)
         self.assertNotIn("fc00", config)
 
@@ -133,6 +141,23 @@ class OpenVpnTest(unittest.TestCase):
                      "; auth-user-pass\n", "<auth-user-pass>\nu\np\n</auth-user-pass>\n"):
             with self.subTest(text=text):
                 self.assertFalse(openvpn.asks_for_credentials(text))
+
+    def test_unsafe_directives(self):
+        self.assertEqual(openvpn.unsafe_directives(
+            "client\nremote x 1194\nup /etc/openvpn/update-resolv-conf\ndown x\n"
+            "script-security 2\nstatus-version 2\n<ca>\n-----BEGIN CERTIFICATE-----\n"
+            "MIIB\n</ca>\n# route-up x\n; plugin y\n"), [])
+        for line, name in (("route-up /bin/sh", "route-up"), ("  plugin x.so", "plugin"),
+                           ("--log /etc/passwd", "log"), ('"route-up" x', "route-up"),
+                           ("'plugin' x", "plugin"), ("route\\-up x", "route-up"),
+                           ("ROUTE-UP x", "route-up"),
+                           ("config /tmp/more.conf", "config"), ("user nobody", "user"),
+                           ("route-up\tx", "route-up"), ("<connection>\nipchange x", "ipchange")):
+            with self.subTest(line=line):
+                self.assertEqual(openvpn.unsafe_directives(f"client\n{line}\n"), [name])
+        self.assertEqual(openvpn.unsafe_directives("\ufeffstatus /x\n"), ["status"])
+        # A closing quote ends the word; a quote inside one is a letter.
+        self.assertEqual(openvpn.unsafe_directives('"route-up"x\nroute"-up x\n'), ["route-up"])
 
     def test_credentials_format(self):
         self.assertTrue(openvpn.valid_credentials("user+pmp\nsecret\n"))
@@ -299,6 +324,17 @@ class AgentTest(unittest.TestCase):
         self.assertEqual((code, values), (1, {"result": "error", "error": "no-credentials"}))
         self.assertFalse(any(call[:2] == ["systemctl", "start"] for call in self.runner.calls))
         self.assertFalse(os.path.exists(self.qube.paths.active))
+
+    def test_openvpn_refuses_unsafe_profiles(self):
+        self.qube.profile("openvpn", "evil", "client\nroute-up \"/bin/sh -c 'nft flush ruleset'\"\n")
+        self.qube.profile("openvpn", "huge", "client\n" + "#" * openvpn.MAX_PROFILE + "\n")
+        for name in ("evil", "huge"):
+            with self.subTest(name=name), self.assertLogs("qubes-vpn-agent", "ERROR"):
+                code, values, _ = self.run_service("connect", name)
+                self.assertEqual((code, values), (1, {"result": "error", "error": "unsafe-profile"}))
+        # Refused before anything is touched: a running tunnel stays up.
+        self.assertEqual(self.runner.calls, [])
+        self.assertFalse(os.path.exists(self.qube.paths.openvpn_env))
 
     def test_openvpn_credentials(self):
         self.qube.profile("openvpn", "nl-free-1", "client\nauth-user-pass\n")

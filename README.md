@@ -1,10 +1,8 @@
-<img width="889" height="636" alt="qubes-vpn" src="https://github.com/user-attachments/assets/c901ff80-0160-47d0-94ab-9383092d8c46" />
-
 # qubes-vpn
 
 A VPN manager for Qubes OS: several VPN qubes at once, WireGuard and OpenVPN,
-in qubes-firewall's window. Nothing of it runs in dom0, which only holds the
-qrexec policy (and, if you want it, one small whitelisted service).
+in qubes-firewall's window. Almost nothing of it runs in dom0, which holds the
+qrexec policy and one small service that moves a qube to an allowed net qube.
 
 ```console
 $ qubes-vpn --tray          # in the vpn-manager qube, autostarted
@@ -20,7 +18,7 @@ Installation, step by step: [docs/install.md](docs/install.md).
 |---|---|---|
 | **Agent** (`agent/`) | every VPN qube (tag `vpn`, `provides_network=True`) | qrexec services `vpn.*`, one interface over WireGuard (wg-quick) and OpenVPN (management socket), the kill switch and DNS rules |
 | **Manager** (`qubes_vpn/`) | the `vpn-manager` qube (no net qube) | the tray icon and window; calls the agents over qrexec and qubesd over the Admin API (`qubesadmin`) |
-| **Policy** (`policy/`) | dom0, `/etc/qubes/policy.d/` | who may call what; optionally `dom0/vpn.SetNetvm` |
+| **Policy** (`policy/`) | dom0, `/etc/qubes/policy.d/` | who may call what; `dom0/vpn.SetNetvm` |
 
 ## What the window shows
 
@@ -152,10 +150,17 @@ writes them). Keys and passwords never leave the VPN qube.
   profiles that exist, and reads nothing else from the caller.
 - No keys or passwords in the manager or dom0: the manager knows profile
   names, nothing more.
-- Known weakness: `admin.vm.property.Set +netvm` cannot be limited by value.
-  The optional dom0 service `vpn.SetNetvm+<netvm>` puts the value in the
-  argument, so the policy names the allowed net qubes
-  ([docs/install.md](docs/install.md#optional-vpnsetnetvm-in-dom0)).
+- Moving a client qube goes through the dom0 service `vpn.SetNetvm+<netvm>`:
+  the new net qube is the argument, so the policy names each allowed one.
+  `admin.vm.property.Set +netvm` cannot be limited by value, so it is off in
+  the policy; turn it on only knowingly
+  ([docs/install.md](docs/install.md#alternative-without-code-in-dom0)).
+- The kill switch is required by the VPN qube's uplink: if it cannot be set
+  up at boot, the qube gets no uplink rather than an unprotected one.
+- Profiles are read before they run, as root: wg-quick's `PreUp`/`PostUp`/
+  `PreDown`/`PostDown` are taken out, and an OpenVPN profile that would run
+  scripts, load plugins or engines, write files, include another file or drop
+  root is refused (`unsafe-profile`).
 
 ## Architecture
 
@@ -174,7 +179,7 @@ writes them). Keys and passwords never leave the VPN qube.
 | `cli.py` | headless use: the tree, status, stats, profiles, connect, disconnect, move |
 | `vpn.css` | qubes-firewall's chrome, plus the tree and the graph |
 | `agent/qubes_vpn_agent/` | the agent: `service` (commands), `agent` (both protocols), `wireguard`, `openvpn`, `killswitch`, `stats`, `profiles`, `output`, `system` |
-| `dom0/vpn.SetNetvm` | the optional dom0 service |
+| `dom0/vpn.SetNetvm` | the dom0 service that moves a client qube |
 
 Like qubes-firewall, the core (protocol, model, backends, cli, agent) does
 not import `gi`, and imports `qubesadmin` only in the qubesadmin backend, so

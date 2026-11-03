@@ -1,16 +1,14 @@
-## qubes-vpn, optional: change net qubes through dom0's vpn.SetNetvm service.
+## qubes-vpn: change net qubes through dom0's vpn.SetNetvm service.
 ##
 ## Here the new net qube is the service's ARGUMENT, so the policy decides
 ## which net qubes a vpn-client qube may get: one line per allowed net qube.
 ## The service (dom0/vpn.SetNetvm) checks again that the qube is tagged
 ## vpn-client and the new net qube provides network.
 ##
-## To use it:
+## To use it (the manager's default, netvm_method = service):
 ##   1. install dom0/vpn.SetNetvm as /etc/qubes-rpc/vpn.SetNetvm in dom0;
 ##   2. install this file as /etc/qubes/policy.d/31-qubes-vpn-setnetvm.policy,
-##      with the net qubes you allow;
-##   3. delete the admin.vm.property.Set line from 30-qubes-vpn.policy;
-##   4. in vpn-manager, ~/.config/qubes-vpn/config.ini: netvm_method = service
+##      with the net qubes you allow.
 ##
 ## The manager calls it as `qrexec-client-vm <client> vpn.SetNetvm+<netvm>`;
 ## target=dom0 runs it in dom0, which reads the client from

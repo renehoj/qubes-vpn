@@ -44,11 +44,12 @@ admin.vm.property.Get  +ip          vpn-manager  @tag:vpn-client  allow target=d
 admin.vm.Start         *            vpn-manager  @tag:vpn         allow target=dom0
 admin.vm.Shutdown      *            vpn-manager  @tag:vpn         allow target=dom0
 
-## Moving a client qube to another net qube.
+## Moving a client qube to another net qube: through dom0's vpn.SetNetvm,
+## whose policy names each net qube allowed (31-qubes-vpn-setnetvm.policy).
 ##
-## Known weakness: a policy cannot limit the VALUE written here, so
-## vpn-manager could give a vpn-client qube ANY net qube (sys-net, say), not
-## only a VPN qube. To close that, use the optional dom0 service instead
-## (31-qubes-vpn-setnetvm.policy, dom0/vpn.SetNetvm, netvm_method = service
-## in the manager's config.ini) and delete this line.
-admin.vm.property.Set  +netvm       vpn-manager  @tag:vpn-client  allow target=dom0
+## The line below is the alternative without any code in dom0, for
+## netvm_method = admin in the manager's config.ini. It is off on purpose: a
+## policy cannot limit the VALUE written, so a vpn-manager taken over through
+## a VPN qube's answers could give every vpn-client qube ANY net qube
+## (sys-net, say) and route it around the VPNs.
+#admin.vm.property.Set  +netvm       vpn-manager  @tag:vpn-client  allow target=dom0

@@ -1,11 +1,19 @@
 # The kill switch and DNS table (qubes_vpn_agent.killswitch), before any
 # downstream qube can send anything. Runs only in qubes with the qvm-service
 # "vpn-agent" turned on (qvm-service <qube> vpn-agent on).
+#
+# RequiredBy the uplink, qubes-network-uplink@eth0 (udev starts it; it is what
+# sets eth0 up, qubes-network-uplink.service only waits for it): if nft fails
+# here, the VPN qube gets no uplink at all, rather than one that forwards
+# downstream qubes unencrypted. In a qube without the qvm-service the
+# condition skips this unit, which is not a failure, and the uplink comes up
+# as usual.
 [Unit]
 Description=Qubes VPN: kill switch and DNS rules
 ConditionPathExists=/run/qubes-service/vpn-agent
 After=qubes-iptables.service
-Before=qubes-network-uplink.service qubes-firewall.service network-pre.target
+Before=qubes-network-uplink@eth0.service qubes-network-uplink.service qubes-firewall.service
+Before=network-pre.target
 Wants=network-pre.target
 
 [Service]
@@ -15,3 +23,4 @@ ExecStart=@AGENT@ killswitch
 
 [Install]
 WantedBy=multi-user.target
+RequiredBy=qubes-network-uplink@eth0.service

@@ -4,7 +4,7 @@
 wg-quick names the interface after the file, so the tunnel is always
 ``vpn-wg`` and the kill switch can name it in advance.
 
-The copy differs from the profile in two ways:
+The copy differs from the profile in three ways:
 
 * ``DNS =`` lines are taken out. wg-quick would hand them to resolvconf, which
   does nothing for the qubes behind this one; the agent DNATs their DNS to
@@ -12,6 +12,10 @@ The copy differs from the profile in two ways:
 * IPv6 addresses are taken out of ``Address``, ``AllowedIPs`` and ``DNS``. The
   kill switch drops all IPv6 from downstream qubes, and a qube without IPv6
   would make wg-quick fail on them.
+* ``PreUp``, ``PostUp``, ``PreDown`` and ``PostDown`` are taken out. wg-quick
+  runs them as root in bash, so a profile could run anything, the kill
+  switch's table included (providers' own kill switch lines are such hooks;
+  the agent's kill switch replaces them).
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ UNIT = "qubes-vpn-wireguard.service"
 #: WireGuard re-handshakes every two minutes while traffic flows; three
 #: minutes without one means the peer is probably gone.
 STALE_AFTER = 180
+#: wg-quick's hooks: shell commands, run as root.
+HOOKS = ("preup", "postup", "predown", "postdown")
 
 
 def _ipv4(text: str) -> bool:
@@ -45,6 +51,8 @@ def prepare_config(text: str) -> tuple[str, list[str]]:
         key = key.strip().lower()
         if not sep:
             out.append(line)
+            continue
+        if key in HOOKS:
             continue
         items = [item.strip() for item in value.split(",") if item.strip()]
         if key == "dns":

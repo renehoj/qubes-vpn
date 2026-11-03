@@ -234,8 +234,8 @@ class SettingsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "config.ini")
             self.assertEqual(settings.load(path), settings.Settings())
-            Path(path).write_text("[manager]\npoll_interval = 60\nnetvm_method = service\n")
-            self.assertEqual(settings.load(path), settings.Settings(5, "service"))
+            Path(path).write_text("[manager]\npoll_interval = 60\nnetvm_method = admin\n")
+            self.assertEqual(settings.load(path), settings.Settings(5, "admin"))
             Path(path).write_text("[manager]\npoll_interval = x\nnetvm_method = sudo\n")
             self.assertEqual(settings.load(path), settings.Settings())
 

@@ -5,9 +5,10 @@
     [manager]
     # Seconds between polls, 2-5.
     poll_interval = 3
-    # How a client qube gets a new net qube: "admin" (admin.vm.property.Set
-    # +netvm) or "service" (dom0's vpn.SetNetvm, see docs/install.md).
-    netvm_method = admin
+    # How a client qube gets a new net qube: "service" (dom0's vpn.SetNetvm,
+    # the default) or "admin" (admin.vm.property.Set +netvm, which the policy
+    # cannot limit to the VPN qubes; see docs/install.md).
+    netvm_method = service
 
 ``~/.local/state/qubes-vpn/profiles.json`` remembers the last profile each
 VPN qube was connected to, for the tray's Connect and the profile list's
@@ -44,7 +45,7 @@ def state_path() -> str:
 @dataclasses.dataclass
 class Settings:
     poll_interval: int = POLL_SECONDS
-    netvm_method: str = "admin"
+    netvm_method: str = "service"
 
 
 def load(path: str | None = None) -> Settings:

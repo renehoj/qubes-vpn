@@ -1,4 +1,4 @@
-"""dom0's optional vpn.SetNetvm service, against a fake qubesadmin app."""
+"""dom0's vpn.SetNetvm service, against a fake qubesadmin app."""
 
 import importlib.machinery
 import importlib.util

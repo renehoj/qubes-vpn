@@ -41,7 +41,12 @@ This puts the agent in `/usr/lib/qubes-vpn-agent`, the qrexec services in
 `/etc/qubes-rpc/vpn.*` and the systemd units in `/etc/systemd/system`, and
 enables `qubes-vpn-killswitch.service` and `qubes-vpn-autoconnect.service`.
 Those two run only in qubes where the `vpn-agent` qvm-service is on (step 2);
-the services answer only where the policy sends calls (`@tag:vpn`). Shut the
+the services answer only where the policy sends calls (`@tag:vpn`). The kill
+switch is required by the uplink (`qubes-network-uplink@eth0`): if it cannot
+be set up, the VPN qube gets no network at all rather than an unprotected
+one. Without the qvm-service there is no kill switch until the first
+connect, so do not forget it. After updating an older install, run
+`install.sh --template` again so the requirement is enabled. Shut the
 template down.
 
 ## 2. A VPN qube
@@ -65,8 +70,17 @@ sudo install -m 0600 ~/QubesIncoming/*/work-gateway.ovpn /rw/config/vpn/openvpn/
 ```
 
 An OpenVPN profile's certificates go beside it, in `/rw/config/vpn/openvpn`
-(OpenVPN runs from that directory). Do not use `user`/`group` in an OpenVPN
-profile: the down script needs root to put the DNS rules back.
+(OpenVPN runs from that directory).
+
+The agent reads a profile before it runs it as root. From a WireGuard profile
+it leaves out `PreUp`, `PostUp`, `PreDown` and `PostDown` (shell commands;
+providers' own kill switch lines are such hooks, and the agent's kill switch
+replaces them). An OpenVPN profile is refused (`unsafe-profile`, the journal
+says which line) if it would run a script (`route-up`, `ipchange`,
+`tls-verify`, …), load a `plugin`, `engine` or `providers`, write a file
+(`log`, `status`, `writepid`, …), read another `config`, or drop root
+(`user`, `group`, `chroot`); delete those lines. `up`, `down` and
+`script-security` are fine: the agent's own options override them.
 
 ### OpenVPN username and password
 
@@ -154,7 +168,7 @@ Optional, `~/.config/qubes-vpn/config.ini`:
 ```ini
 [manager]
 poll_interval = 3
-netvm_method = admin
+netvm_method = service
 ```
 
 ## 4. Client qubes
@@ -173,19 +187,29 @@ tag it too (`qvm-tags disp1234 add vpn-client`). Moving the disposable
 template changes the net qube of disposables started later, not of running
 ones.
 
-## 5. The policy
+## 5. The policy and vpn.SetNetvm
 
 **dom0:**
 
 ```bash
 qvm-run --pass-io dev 'cat ~/src/qubes-vpn/policy/30-qubes-vpn.policy' | sudo tee /etc/qubes/policy.d/30-qubes-vpn.policy
+qvm-run --pass-io dev 'cat ~/src/qubes-vpn/policy/31-qubes-vpn-setnetvm.policy' | sudo tee /etc/qubes/policy.d/31-qubes-vpn-setnetvm.policy
+qvm-run --pass-io dev 'cat ~/src/qubes-vpn/dom0/vpn.SetNetvm' | sudo tee /etc/qubes-rpc/vpn.SetNetvm > /dev/null
+sudo chmod 0755 /etc/qubes-rpc/vpn.SetNetvm
 ```
 
-If the qube is not called `vpn-manager`, change the source column. The file
-explains every line. When Qubes has `qubes-policy-lint`, check it with:
+If the qube is not called `vpn-manager`, change the source column. The files
+explain every line. Edit `31-qubes-vpn-setnetvm.policy` to list the net
+qubes a client qube may be moved to: your VPN qubes, `sys-firewall`, and
+`none`. Read `vpn.SetNetvm` before installing it: it is the only qubes-vpn
+code that runs in dom0 (about 60 lines, qubesadmin only). It moves a
+`vpn-client` qube to the net qube named in the call's argument, so the policy,
+not the manager, decides where client qubes may go.
+
+When Qubes has `qubes-policy-lint`, check the policy with:
 
 ```bash
-sudo qubes-policy-lint /etc/qubes/policy.d/30-qubes-vpn.policy
+sudo qubes-policy-lint /etc/qubes/policy.d/30-qubes-vpn.policy /etc/qubes/policy.d/31-qubes-vpn-setnetvm.policy
 ```
 
 The agent's services run as root (`user=root`) and never start a halted VPN
@@ -214,26 +238,15 @@ curl -s https://am.i.mullvad.net/ip
 Then disconnect `sys-vpn` and repeat: it must fail, DNS included
 (`getent hosts example.com`).
 
-## Optional: vpn.SetNetvm in dom0
+## Alternative without code in dom0
 
-`admin.vm.property.Set +netvm` lets the policy say which qubes the manager
-may move, but not where to: it could give a `vpn-client` qube any net qube,
-`sys-net` included. The optional dom0 service moves the new net qube into
-the call's argument, where the policy can name each allowed one.
-
-**dom0:**
-
-```bash
-qvm-run --pass-io dev 'cat ~/src/qubes-vpn/dom0/vpn.SetNetvm' | sudo tee /etc/qubes-rpc/vpn.SetNetvm > /dev/null
-sudo chmod 0755 /etc/qubes-rpc/vpn.SetNetvm
-qvm-run --pass-io dev 'cat ~/src/qubes-vpn/policy/31-qubes-vpn-setnetvm.policy' | sudo tee /etc/qubes/policy.d/31-qubes-vpn-setnetvm.policy
-```
-
-Read the service before installing it: it is the only qubes-vpn code that
-runs in dom0 (60 lines, qubesadmin only). Edit `31-qubes-vpn-setnetvm.policy`
-to list your net qubes, delete the `admin.vm.property.Set` line from
-`30-qubes-vpn.policy`, and set `netvm_method = service` in vpn-manager's
-`config.ini`.
+Without `vpn.SetNetvm`, the manager can set the net qube through the Admin
+API instead: uncomment the `admin.vm.property.Set` line in
+`30-qubes-vpn.policy` and set `netvm_method = admin` in vpn-manager's
+`config.ini`. That policy line says which qubes the manager may move, but not
+where to: a vpn-manager taken over through a VPN qube's answers could give
+every `vpn-client` qube any net qube, `sys-net` included, and route it around
+the VPNs. Use it only if you accept that.
 
 ## Persistence
 
@@ -243,7 +256,7 @@ and `/usr/local`) survives.
 | What | Where | Why there |
 |---|---|---|
 | agent code, qrexec services, systemd units | the template (`install.sh --template`) | present from the first moment of boot, so the kill switch is up before anything can be forwarded |
-| … or, without changing the template | `/usr/local/lib/qubes-vpn-agent`, `/usr/local/etc/qubes-rpc`, units in `/rw/config/vpn/systemd` copied to `/run/systemd/system` by `/rw/config/rc.local` (`install.sh --appvm`) | one qube only; the kill switch comes up later in the boot, when `rc.local` runs |
+| … or, without changing the template | `/usr/local/lib/qubes-vpn-agent`, `/usr/local/etc/qubes-rpc`, units in `/rw/config/vpn/systemd` copied to `/run/systemd/system` by `/rw/config/rc.local` (`install.sh --appvm`) | one qube only; the kill switch comes up only when `rc.local` runs, late in the boot: until then a qube behind it that is already starting can reach the internet unencrypted. Use `--template` where that matters |
 | profiles, keys, OpenVPN credentials (`*.auth`), `agent.conf` | `/rw/config/vpn` in the VPN qube (root only) | per qube, never in the template, never in the manager |
 | the active connection, the wg-quick copy | `/run/qubes-vpn` | meant to vanish at shutdown |
 | manager code | `~/.local/share/qubes-vpn` in vpn-manager | the home directory survives; the template only needs the dependencies |

@@ -13,7 +13,7 @@ def qubesadmin_available() -> bool:
     return True
 
 
-def create_backend(kind: str = "auto", netvm_method: str = "admin") -> Backend:
+def create_backend(kind: str = "auto", netvm_method: str = "service") -> Backend:
     """Create a backend: ``qubesadmin``, ``mock`` or ``auto``.
 
     ``auto`` uses qubesadmin when it is installed (the vpn-manager qube) and

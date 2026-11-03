@@ -1,7 +1,8 @@
 #!/usr/bin/python3
-"""qrexec service vpn.SetNetvm+<net qube>, in dom0 (optional).
+"""qrexec service vpn.SetNetvm+<net qube>, in dom0.
 
-The only qubes-vpn code that may run in dom0, and only if you install it.
+The only qubes-vpn code that runs in dom0; the manager's default way to move
+a client qube (``netvm_method = service``).
 It exists because ``admin.vm.property.Set +netvm`` lets the policy say which
 qubes may be changed, but not to what. Here the new net qube is the
 argument, so ``31-qubes-vpn-setnetvm.policy`` allows it one net qube per line.

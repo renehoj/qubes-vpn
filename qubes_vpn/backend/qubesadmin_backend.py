@@ -7,10 +7,10 @@ Admin API calls (see ``policy/30-qubes-vpn.policy`` for what each needs):
   ``admin.vm.tag.Get +vpn`` / ``+vpn-client``, ``admin.vm.CurrentState`` and
   ``admin.vm.property.Get +netvm`` / ``+ip`` per qube;
 * ``admin.vm.Start`` and ``admin.vm.Shutdown`` on VPN qubes;
-* ``admin.vm.property.Set +netvm`` on client qubes, or, with
-  ``netvm_method = service``, the dom0 service ``vpn.SetNetvm+<net qube>``
-  instead (see ``dom0/vpn.SetNetvm``), whose policy can say which net qubes
-  are allowed.
+* the dom0 service ``vpn.SetNetvm+<net qube>`` on client qubes (see
+  ``dom0/vpn.SetNetvm``), whose policy says which net qubes are allowed, or,
+  with ``netvm_method = admin``, ``admin.vm.property.Set +netvm``, which it
+  cannot.
 
 A qube the policy hides, or whose properties it refuses, is left out of the
 list rather than failing the whole poll.
@@ -41,7 +41,7 @@ class QubesAdminBackend(Backend):
     name = "qubesd"
 
     def __init__(self, app=None, qrexec: QrexecClient | None = None,
-                 netvm_method: str = "admin"):
+                 netvm_method: str = "service"):
         if netvm_method not in METHODS:
             raise ValueError(f"netvm_method must be one of {METHODS}")
         self.app = app if app is not None else qubesadmin.Qubes()

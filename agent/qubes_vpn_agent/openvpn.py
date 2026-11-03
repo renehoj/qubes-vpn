@@ -20,6 +20,14 @@ OpenVPN's own format (username on the first line, password on the second):
 all of them. The agent hands that file to OpenVPN with ``--auth-user-pass``,
 which overrides the profile's own line. ``vpn-agent credentials [<profile>]``
 writes it.
+
+Profiles come from a provider, so the agent reads one before it runs it and
+refuses directives that would let it run code or write files as root
+(:data:`UNSAFE_DIRECTIVES`). OpenVPN needs ``--script-security 2`` for the
+agent's own up/down script, and that would let the profile's ``route-up``,
+``plugin`` and the like run too; they could take down the kill switch. The
+profile's own ``up``, ``down``, ``script-security``, ``dev`` and
+``management`` are allowed: the options after ``--config`` override them.
 """
 
 from __future__ import annotations
@@ -35,6 +43,20 @@ UNIT = "qubes-vpn-openvpn.service"
 MAX_REPLY = 64 * 1024
 DEFAULT_CREDENTIALS = "default"
 CREDENTIALS_EXT = ".auth"
+#: Larger profiles are refused rather than checked in part.
+MAX_PROFILE = 256 * 1024
+
+#: Directives a profile may not have: they run commands, load code, write
+#: files, read further options from elsewhere, or drop root.
+UNSAFE_DIRECTIVES = frozenset((
+    "route-up", "route-pre-down", "ipchange", "tls-verify", "learn-address",
+    "auth-user-pass-verify", "client-connect", "client-disconnect",
+    "tls-crypt-v2-verify", "dns-updown", "iproute", "plugin",
+    "engine", "providers", "pkcs11-providers",
+    "log", "log-append", "status", "writepid", "replay-persist", "tls-export-cert",
+    "ifconfig-pool-persist",
+    "config", "user", "group", "chroot",
+))
 
 #: OpenVPN's states (management ``state``), as the agent reports them.
 STATES = {
@@ -64,6 +86,46 @@ def asks_for_credentials(profile_text: str) -> bool:
         if words == ["auth-user-pass"]:
             return True
     return False
+
+
+def unsafe_directives(profile_text: str) -> list[str]:
+    """The :data:`UNSAFE_DIRECTIVES` in the profile, in order.
+
+    Every line counts, inline blocks (``<ca>`` ...) and ``<connection>``
+    included: a certificate line never reads as a directive, and checking
+    them all leaves nothing to how OpenVPN finds a block's end.
+    """
+    found = []
+    for line in profile_text.lstrip("\ufeff").splitlines():
+        name = _directive(line).lower()
+        name = name[2:] if name.startswith("--") else name
+        if name in UNSAFE_DIRECTIVES and name not in found:
+            found.append(name)
+    return found
+
+
+def _directive(line: str) -> str:
+    """The first word of ``line``, read as OpenVPN's ``parse_line`` does.
+
+    A quote opens only at the start of the word and its partner ends it; a
+    backslash makes the next character plain, except inside single quotes.
+    """
+    text = line.lstrip()
+    if not text or text[0] in "#;":
+        return ""
+    quote = text[0] if text[0] in "\"'" else None
+    word, escaped = [], False
+    for char in text[1:] if quote else text:
+        if escaped:
+            word.append(char)
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif char == quote or (quote is None and char.isspace()):
+            break
+        else:
+            word.append(char)
+    return "".join(word)
 
 
 def valid_credentials(text: str) -> bool:

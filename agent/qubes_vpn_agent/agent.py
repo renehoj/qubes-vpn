@@ -70,20 +70,22 @@ class Agent:
             profile = find_profile(name, self.paths.wireguard_dir, self.paths.openvpn_dir)
         except ProfileError as exc:
             raise AgentError(exc.code) from None
+        # A profile that is refused leaves the running tunnel alone.
+        dns: list[str] = []
+        if profile.protocol == WIREGUARD:
+            text = read_text(profile.path, limit=64 * 1024)
+            if text is None:
+                raise AgentError("unknown-profile")
+            path, (config, dns) = self.paths.wg_conf, wireguard.prepare_config(text)
+        else:
+            text = self._openvpn_profile(profile)
+            path, config = self.paths.openvpn_env, (
+                f"PROFILE={profile.path}\n"
+                f"PROFILE_DIR={os.path.dirname(profile.path)}\n"
+                f"AUTH_ARGS={self._openvpn_auth_args(profile, text)}\n")
         with self._locked():
             self._stop_tunnels()
-            dns: list[str] = []
-            if profile.protocol == WIREGUARD:
-                text = read_text(profile.path, limit=64 * 1024)
-                if text is None:
-                    raise AgentError("unknown-profile")
-                config, dns = wireguard.prepare_config(text)
-                write_private(self.paths.wg_conf, config)
-            else:
-                write_private(self.paths.openvpn_env,
-                              f"PROFILE={profile.path}\n"
-                              f"PROFILE_DIR={os.path.dirname(profile.path)}\n"
-                              f"AUTH_ARGS={self._openvpn_auth_args(profile)}\n")
+            write_private(path, config)
             self._write_active({"protocol": profile.protocol, "profile": profile.name,
                                 "since": self.clock(), "dns": dns})
             self._apply_killswitch(dns)
@@ -219,7 +221,22 @@ class Agent:
     def _profiles(self):
         return list_profiles(self.paths.wireguard_dir, self.paths.openvpn_dir)
 
-    def _openvpn_auth_args(self, profile) -> str:
+    def _openvpn_profile(self, profile) -> str:
+        """The profile's text, refused if too large or it has unsafe directives."""
+        text = read_text(profile.path, limit=openvpn.MAX_PROFILE + 1)
+        if text is None:
+            raise AgentError("unknown-profile")
+        if len(text) > openvpn.MAX_PROFILE:
+            logger.error("OpenVPN profile %s: larger than %d bytes", profile.name,
+                         openvpn.MAX_PROFILE)
+            raise AgentError("unsafe-profile")
+        unsafe = openvpn.unsafe_directives(text)
+        if unsafe:
+            logger.error("OpenVPN profile %s: not allowed: %s", profile.name, ", ".join(unsafe))
+            raise AgentError("unsafe-profile")
+        return text
+
+    def _openvpn_auth_args(self, profile, text: str) -> str:
         """``--auth-user-pass <file>`` when there is a credentials file.
 
         Without one, a profile that would make OpenVPN prompt is refused here,
@@ -227,7 +244,6 @@ class Agent:
         """
         path = openvpn.find_credentials(self.paths.openvpn_dir, profile.name)
         if path is None:
-            text = read_text(profile.path, limit=256 * 1024) or ""
             if openvpn.asks_for_credentials(text):
                 raise AgentError("no-credentials")
             return ""

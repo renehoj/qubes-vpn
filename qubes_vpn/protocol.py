@@ -58,6 +58,9 @@ ERROR_TEXT = {
                       "vpn-agent credentials in the VPN qube",
     "bad-credentials": "the OpenVPN credentials file needs the username on line 1 "
                        "and the password on line 2",
+    "unsafe-profile": "the OpenVPN profile runs scripts, loads plugins, writes files or "
+                      "changes user, which the agent does not allow; see the VPN qube's "
+                      "journal",
     "not-root": "the agent does not run as root (policy needs user=root)",
     "internal": "the agent failed; see the VPN qube's journal",
 }
@@ -218,7 +221,7 @@ PROFILES_SCHEMA = {
     "active": _name,
 }
 
-#: dom0's ``vpn.SetNetvm`` (the optional service).
+#: dom0's ``vpn.SetNetvm``.
 SETNETVM_SCHEMA = {
     "result": _COMMON["result"],
     "error": _code,
