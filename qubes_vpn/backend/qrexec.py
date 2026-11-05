@@ -3,7 +3,9 @@
 The answer comes from a qube that may be compromised, so the call is bounded
 both ways: it is killed after ``timeout`` seconds, and once it has sent more
 than ``max_bytes`` (``protocol.MAX_OUTPUT``) it is killed and refused, rather
-than read into memory. Its stdin is empty; the services read nothing.
+than read into memory. Its stdin is empty, except for ``vpn.Configure``, which
+reads the new value there: written whole and closed before the answer is read
+(it is a few hundred bytes, well within a pipe's buffer).
 """
 
 from __future__ import annotations
@@ -31,15 +33,27 @@ class QrexecClient:
         self.timeout = timeout
         self.max_bytes = max_bytes
 
-    def call(self, target: str, service: str, argument: str | None = None) -> bytes:
+    def call(self, target: str, service: str, argument: str | None = None,
+             stdin: bytes | None = None) -> bytes:
         name = f"{service}+{argument}" if argument else service
         argv = [*self.command, "--", target, name]
         try:
-            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE)
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    stdin=subprocess.DEVNULL if stdin is None
+                                    else subprocess.PIPE)
         except OSError as exc:
             raise QrexecError(f"Could not run {self.command[0]}: {exc}") from exc
         try:
+            if stdin is not None:
+                try:
+                    proc.stdin.write(stdin)
+                except BrokenPipeError:
+                    pass  # refused before it read; the exit code says why
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except BrokenPipeError:
+                        pass
             stdout, stderr = self._read(proc, f"{name} in {target}")
             returncode = proc.wait(timeout=1)
         finally:

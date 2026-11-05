@@ -85,7 +85,9 @@ says which line) if it would run a script (`route-up`, `ipchange`,
 ### OpenVPN username and password
 
 Profiles from providers such as ProtonVPN have a bare `auth-user-pass` line
-and no credentials. Store them in the VPN qube:
+and no credentials. Store them from the manager's window (**Settings…** on
+the VPN qube; needs the `vpn.Configure +credentials` policy line, step 5), or
+in the VPN qube:
 
 ```bash
 sudo /usr/lib/qubes-vpn-agent/vpn-agent credentials
@@ -107,7 +109,8 @@ For ProtonVPN, use the **OpenVPN / IKEv2 username and password** from
 account.protonvpn.com (Account → OpenVPN / IKEv2), not your Proton login. The
 username may carry suffixes such as `+pmp`.
 
-Optional, `/rw/config/vpn/agent.conf`:
+Optional, `/rw/config/vpn/agent.conf` (also set from the window's
+**Settings…**, which rewrites only the line it changes):
 
 ```ini
 # Connect at boot.
@@ -205,6 +208,13 @@ qubes a client qube may be moved to: your VPN qubes, `sys-firewall`, and
 code that runs in dom0 (about 60 lines, qubesadmin only). It moves a
 `vpn-client` qube to the net qube named in the call's argument, so the policy,
 not the manager, decides where client qubes may go.
+
+The three `vpn.Configure` lines let the window's **Settings…** change a VPN
+qube's settings, one line per setting. Delete the `+credentials` line if the
+OpenVPN password should never pass through vpn-manager; then store it in the
+VPN qube with `vpn-agent credentials`. After updating qubes-vpn, run
+`install.sh` in the VPN qubes' template (or AppVM) again: `vpn.Configure` is
+a new service there.
 
 When Qubes has `qubes-policy-lint`, check the policy with:
 

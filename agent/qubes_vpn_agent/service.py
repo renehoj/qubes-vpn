@@ -3,8 +3,10 @@
 =====================  =============================  ============================
 qrexec service         command                        output
 =====================  =============================  ============================
-``vpn.ListProfiles``   ``list-profiles``              ``profile=<name>:<protocol>``
+``vpn.ListProfiles``   ``list-profiles``              ``profile=<name>:<protocol>``,
+                                                      settings
 ``vpn.Connect+<p>``    ``connect <p>``                ``result=``, then Status
+``vpn.Configure+<k>``  ``configure <k>``              ``result=``, then ListProfiles
 ``vpn.Disconnect``     ``disconnect``                 ``result=``, then Status
 ``vpn.Status``         ``status``                     state, protocol, profile, …
 ``vpn.Stats``          ``stats``                      counters, ``vif=`` lines
@@ -19,9 +21,14 @@ The profile name of ``vpn.Connect+<p>`` comes from ``QREXEC_SERVICE_ARGUMENT``
 and the profiles that exist; nothing else is read from the caller, not even
 stdin. A failure prints ``result=error`` and ``error=<code>``.
 
+``vpn.Configure+<key>`` is the one service that reads stdin: the new value of
+``key`` (see ``Agent.configure``), at most ``MAX_CONFIG_INPUT`` bytes. The key
+is the qrexec argument, so the policy can allow each one on its own.
+
 ``credentials`` asks for an OpenVPN username and password on the terminal and
 writes them to ``/rw/config/vpn/openvpn/<profile>.auth``, or ``default.auth``
-for every OpenVPN profile. No qrexec service runs it.
+for every OpenVPN profile. ``vpn.Configure+credentials`` does the same from
+the manager.
 
 Everything runs as root (the policy's ``user=root``): the tunnels, nft and
 ``/rw/config/vpn`` need it.
@@ -34,11 +41,11 @@ import logging
 import os
 import sys
 
-from .agent import Agent, AgentError
+from .agent import MAX_CONFIG_INPUT, Agent, AgentError
 from .output import render
 
 COMMANDS = ("list-profiles", "connect", "disconnect", "status", "stats",
-            "killswitch", "autoconnect", "openvpn-event", "credentials")
+            "killswitch", "autoconnect", "openvpn-event", "credentials", "configure")
 
 logger = logging.getLogger("qubes-vpn-agent")
 
@@ -50,8 +57,13 @@ def _ask(prompt: str, secret: bool) -> str:
     return sys.stdin.readline().rstrip("\n")
 
 
+def _read_stdin() -> bytes:
+    # One byte more than allowed, so the agent can tell "too long" apart.
+    return sys.stdin.buffer.read(MAX_CONFIG_INPUT + 1)
+
+
 def main(argv: list[str] | None = None, *, agent: Agent | None = None, out=None,
-         environ: dict[str, str] | None = None, ask=_ask) -> int:
+         environ: dict[str, str] | None = None, ask=_ask, stdin=_read_stdin) -> int:
     argv = sys.argv[1:] if argv is None else argv
     out = out or sys.stdout
     environ = dict(os.environ) if environ is None else environ
@@ -80,6 +92,9 @@ def main(argv: list[str] | None = None, *, agent: Agent | None = None, out=None,
             pairs = agent.apply_killswitch()
         elif command == "autoconnect":
             pairs = agent.autoconnect()
+        elif command == "configure":
+            key = environ.get("QREXEC_SERVICE_ARGUMENT") or (argv[1] if len(argv) > 1 else "")
+            pairs = agent.configure(key, stdin())
         elif command == "credentials":
             profile = argv[1] if len(argv) > 1 else None
             pairs = agent.set_credentials(profile, ask("Username: ", False),

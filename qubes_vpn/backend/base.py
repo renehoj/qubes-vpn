@@ -61,12 +61,15 @@ class Backend(abc.ABC):
 
     # -- the agents ------------------------------------------------------
     @abc.abstractmethod
-    def _call(self, target: str, service: str, argument: str | None = None) -> bytes:
-        """Run qrexec service ``service[+argument]`` in ``target``; its stdout."""
+    def _call(self, target: str, service: str, argument: str | None = None,
+              stdin: bytes | None = None) -> bytes:
+        """Run qrexec service ``service[+argument]`` in ``target``, with
+        ``stdin`` as its input (None: none); its stdout."""
 
-    def _ask(self, target: str, service: str, parse, argument: str | None = None) -> Answer:
+    def _ask(self, target: str, service: str, parse, argument: str | None = None,
+             stdin: bytes | None = None) -> Answer:
         _check_qube(target)
-        data = self._call(target, service, argument)
+        data = self._call(target, service, argument, stdin)
         try:
             return parse(data)
         except protocol.ProtocolError as exc:
@@ -88,6 +91,42 @@ class Backend(abc.ABC):
 
     def disconnect(self, vpn: str) -> Answer:
         return _checked(self._ask(vpn, "vpn.Disconnect", protocol.parse_status))
+
+    # -- settings (vpn.Configure+<key>, the value on stdin) ---------------
+    def _configure(self, vpn: str, key: str, value: str) -> Answer:
+        """Answers as :meth:`profiles` does, with the new settings."""
+        if key not in protocol.CONFIG_KEYS:
+            raise BackendError(f"Unknown setting: {key}")
+        return _checked(self._ask(vpn, "vpn.Configure", protocol.parse_profiles, key,
+                                  f"{value}\n".encode("utf-8")))
+
+    def set_autoconnect(self, vpn: str, profile: str | None) -> Answer:
+        """The profile ``vpn`` connects to at boot; None: none."""
+        if profile is not None and not protocol.valid_profile_name(profile):
+            raise BackendError("That is not a valid profile name.")
+        return self._configure(vpn, "autoconnect", profile or "")
+
+    def set_ping_target(self, vpn: str, address: str | None) -> Answer:
+        """What the latency is measured against; None: the agent's default."""
+        if address is not None and not protocol.valid_ipv4(address):
+            raise BackendError("The latency target must be an IPv4 address.")
+        return self._configure(vpn, "ping_target", address or "")
+
+    def set_credentials(self, vpn: str, profile: str | None, username: str,
+                        password: str) -> Answer:
+        """Store the OpenVPN username and password in ``vpn``, for ``profile``
+        or (None) for every OpenVPN profile without its own. Both empty:
+        remove them."""
+        name = profile or protocol.DEFAULT_CREDENTIALS
+        if not protocol.valid_profile_name(name):
+            raise BackendError("That is not a valid profile name.")
+        if bool(username) != bool(password):
+            raise BackendError("Give both a username and a password.")
+        for text in (username, password):
+            if len(text) > protocol.MAX_SECRET or any(c in text for c in "\r\n\0"):
+                raise BackendError("The username and password must each be one line "
+                                   f"of at most {protocol.MAX_SECRET} characters.")
+        return self._configure(vpn, "credentials", f"{name}\n{username}\n{password}")
 
 
 def _check_qube(name: str) -> None:

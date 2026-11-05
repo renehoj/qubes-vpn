@@ -54,13 +54,16 @@ ERROR_TEXT = {
     "no-peer": "the WireGuard profile has no peer",
     "stopped": "the tunnel was stopped outside the VPN manager",
     "busy": "the VPN qube is busy with another connect or disconnect",
-    "no-credentials": "the OpenVPN profile needs a username and password: run "
-                      "vpn-agent credentials in the VPN qube",
-    "bad-credentials": "the OpenVPN credentials file needs the username on line 1 "
-                       "and the password on line 2",
+    "no-credentials": "the OpenVPN profile needs a username and password: set them "
+                      "under Settings",
+    "bad-credentials": "the OpenVPN username and password must each be one non-empty "
+                       "line (in the credentials file: username on line 1, password on "
+                       "line 2)",
     "unsafe-profile": "the OpenVPN profile runs scripts, loads plugins, writes files or "
                       "changes user, which the agent does not allow; see the VPN qube's "
                       "journal",
+    "bad-value": "the VPN qube did not accept that value",
+    "not-openvpn": "credentials are only for OpenVPN profiles",
     "not-root": "the agent does not run as root (policy needs user=root)",
     "internal": "the agent failed; see the VPN qube's journal",
 }
@@ -85,6 +88,10 @@ def valid_profile_name(name: str) -> bool:
 
 def valid_qube_name(name: str) -> bool:
     return bool(QUBE_RE.match(name))
+
+
+def valid_ipv4(text: str) -> bool:
+    return _ipv4(text) is not None
 
 
 # -- value types ---------------------------------------------------------------
@@ -215,11 +222,21 @@ STATS_SCHEMA = {
     "latency_ms": _decimal,
 }
 
+#: vpn.ListProfiles, and vpn.Configure's answer: the profiles and settings.
 PROFILES_SCHEMA = {
     "result": _COMMON["result"],
     "error": _code,
     "active": _name,
+    "autoconnect": _name,
+    "ping_target": _ipv4,
 }
+
+#: What ``vpn.Configure+<key>`` may set (the agent's ``CONFIG_KEYS``).
+CONFIG_KEYS = ("autoconnect", "ping_target", "credentials")
+#: The name for the credentials every OpenVPN profile without its own uses.
+DEFAULT_CREDENTIALS = "default"
+#: Longest username or password the manager sends.
+MAX_SECRET = 512
 
 #: dom0's ``vpn.SetNetvm``.
 SETNETVM_SCHEMA = {
@@ -231,6 +248,7 @@ SETNETVM_SCHEMA = {
 _REPEATED = {
     "vif": (_vif, MAX_VIFS),
     "profile": (_profile, MAX_PROFILES),
+    "credentials": (_name, MAX_PROFILES),
 }
 
 
@@ -241,6 +259,8 @@ class Answer:
     values: dict[str, object]
     vifs: list[Vif] = dataclasses.field(default_factory=list)
     profiles: list[Profile] = dataclasses.field(default_factory=list)
+    #: The names with OpenVPN credentials stored (``default`` and profiles).
+    credentials: list[str] = dataclasses.field(default_factory=list)
     #: Lines that were dropped (unknown key, bad value, too long).
     dropped: int = 0
 
@@ -276,7 +296,8 @@ def parse(data: bytes, schema: dict[str, Callable], repeated: tuple[str, ...] = 
             continue
         if key in repeated:
             check, limit = _REPEATED[key]
-            target = answer.vifs if key == "vif" else answer.profiles
+            target = {"vif": answer.vifs, "profile": answer.profiles,
+                      "credentials": answer.credentials}[key]
             value = check(raw)
             if value is None or len(target) >= limit:
                 answer.dropped += 1
@@ -301,7 +322,7 @@ def parse_stats(data: bytes) -> Answer:
 
 
 def parse_profiles(data: bytes) -> Answer:
-    return parse(data, PROFILES_SCHEMA, repeated=("profile",))
+    return parse(data, PROFILES_SCHEMA, repeated=("profile", "credentials"))
 
 
 def parse_setnetvm(data: bytes) -> Answer:

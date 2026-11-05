@@ -19,6 +19,14 @@ vpn.ListProfiles  *  vpn-manager  @tag:vpn  allow user=root autostart=no
 vpn.Connect       *  vpn-manager  @tag:vpn  allow user=root autostart=no
 vpn.Disconnect    *  vpn-manager  @tag:vpn  allow user=root autostart=no
 
+## Settings, one line per key: the key is the argument, the value comes on
+## stdin and the agent checks it. Leave out a line to keep that setting out
+## of the manager's reach; credentials in particular means the OpenVPN
+## password passes through vpn-manager (it is stored only in the VPN qube).
+vpn.Configure  +autoconnect  vpn-manager  @tag:vpn  allow user=root autostart=no
+vpn.Configure  +ping_target  vpn-manager  @tag:vpn  allow user=root autostart=no
+vpn.Configure  +credentials  vpn-manager  @tag:vpn  allow user=root autostart=no
+
 ## The qube list. qubesd answers admin.vm.List with only the qubes this
 ## policy lets vpn-manager list, so the first line is the call and the next
 ## two say which qubes it returns.

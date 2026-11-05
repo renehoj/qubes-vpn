@@ -11,10 +11,10 @@ underneath, and the launcher's red for focus.
 * by the tray (``qubes-vpn --tray``): closing it hides it, and the tray
   keeps polling for its icon.
 
-The window has four pages that share its footer: the overview (a tree of
+The window has five pages that share its footer: the overview (a tree of
 qubes, the tools under it and the selected row's traffic graph), the profile
-list of a VPN qube, the net qube list of a client qube, and the warnings shown
-before an action that has any. Every action runs in a worker thread and is
+list of a VPN qube, a VPN qube's settings (``vpn.Configure``), the net qube
+list of a client qube, and the warnings shown before an action that has any. Every action runs in a worker thread and is
 followed by a fresh poll.
 
 Keyboard, in the overview: Up/Down select, Enter does the row's main thing
@@ -67,11 +67,13 @@ WINDOW_WIDTH = 820
 LIST_HEIGHT = 260
 GRAPH_HEIGHT = 90
 
-OVERVIEW, PROFILES, MOVE, CONFIRM = "overview", "profiles", "move", "confirm"
+OVERVIEW, PROFILES, SETTINGS, MOVE, CONFIRM = (
+    "overview", "profiles", "settings", "move", "confirm")
 
 HINTS = {
     OVERVIEW: "↵ connect / start / move  ·  Ctrl+R refresh  ·  Esc close",
     PROFILES: "↵ connect  ·  Esc back",
+    SETTINGS: "Ctrl+↵ save  ·  Esc back",
     MOVE: "↵ move  ·  Esc back",
     CONFIRM: "Esc back",
 }
@@ -80,6 +82,7 @@ HINTS = {
 BUTTONS = {
     OVERVIEW: ("Cl_ose", "_Refresh"),
     PROFILES: ("_Back", "_Connect"),
+    SETTINGS: ("_Back", "_Save"),
     MOVE: ("_Back", "_Move"),
     CONFIRM: ("_Back", "_Continue"),
 }
@@ -421,6 +424,8 @@ class VpnWindow(Gtk.Window):
         self._busy = False
         self._error: str | None = None
         self._shape: list[tuple] = []
+        #: The settings page's answer, to tell what changed.
+        self._settings: protocol.Answer | None = None
 
         pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         pane.get_style_context().add_class(PANE_CLASS)
@@ -445,6 +450,7 @@ class VpnWindow(Gtk.Window):
         pane.pack_start(self.stack, True, True, 0)
         self.stack.add_named(self._build_overview_page(), OVERVIEW)
         self.stack.add_named(self._build_profiles_page(), PROFILES)
+        self.stack.add_named(self._build_settings_page(), SETTINGS)
         self.stack.add_named(self._build_move_page(), MOVE)
         self.stack.add_named(self._build_confirm_page(), CONFIRM)
 
@@ -505,6 +511,7 @@ class VpnWindow(Gtk.Window):
                 ("disconnect", "_Disconnect", self.disconnect),
                 ("start", "St_art", self.start_qube),
                 ("shutdown", "Shut do_wn", self.shutdown_qube),
+                ("settings", "_Settings…", self.open_settings),
                 ("move", "_Move…", self.open_move)):
             button = Gtk.Button.new_with_mnemonic(text)
             button.get_style_context().add_class("action")
@@ -544,6 +551,63 @@ class VpnWindow(Gtk.Window):
         page.pack_start(_scroller(self.profile_tree, LIST_HEIGHT), True, True, 0)
         self.profiles_note = _note()
         page.pack_start(self.profiles_note, False, False, 0)
+        return page
+
+    def _build_settings_page(self) -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.settings_header = _section()
+        page.pack_start(self.settings_header, False, False, 0)
+
+        def grid() -> Gtk.Grid:
+            g = Gtk.Grid(column_spacing=12, row_spacing=6)
+            g.set_margin_top(4)
+            g.set_margin_bottom(4)
+            return g
+
+        def field(g: Gtk.Grid, row: int, text: str, widget: Gtk.Widget) -> None:
+            label = Gtk.Label.new_with_mnemonic(text)
+            label.set_xalign(0)
+            label.set_mnemonic_widget(widget)
+            label.get_style_context().add_class("field-title")
+            widget.set_hexpand(True)
+            g.attach(label, 0, row, 1, 1)
+            g.attach(widget, 1, row, 1, 1)
+
+        general = grid()
+        self.autoconnect_combo = Gtk.ComboBoxText()
+        field(general, 0, "Connect _at boot", self.autoconnect_combo)
+        self.ping_entry = Gtk.Entry()
+        self.ping_entry.set_placeholder_text("the VPN's DNS server, else 1.1.1.1")
+        self.ping_entry.set_max_length(15)
+        self.ping_entry.connect("activate", lambda *_: self.accept())
+        field(general, 1, "_Latency against", self.ping_entry)
+        page.pack_start(general, False, False, 0)
+
+        self.credentials_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.credentials_box.pack_start(_section("OpenVPN username and password"),
+                                        False, False, 0)
+        secrets = grid()
+        self.credentials_combo = Gtk.ComboBoxText()
+        self.credentials_combo.connect("changed", lambda *_: self._credentials_target_changed())
+        field(secrets, 0, "_For", self.credentials_combo)
+        self.username_entry = Gtk.Entry()
+        self.username_entry.set_max_length(protocol.MAX_SECRET)
+        self.username_entry.connect("activate", lambda *_: self.password_entry.grab_focus())
+        field(secrets, 1, "_Username", self.username_entry)
+        self.password_entry = Gtk.Entry()
+        self.password_entry.set_visibility(False)
+        self.password_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        self.password_entry.set_max_length(protocol.MAX_SECRET)
+        self.password_entry.connect("activate", lambda *_: self.accept())
+        field(secrets, 2, "_Password", self.password_entry)
+        self.forget_check = Gtk.CheckButton.new_with_mnemonic("Re_move the stored ones")
+        self.forget_check.connect("toggled", lambda *_: self._forget_toggled())
+        secrets.attach(self.forget_check, 1, 3, 1, 1)
+        self.credentials_box.pack_start(secrets, False, False, 0)
+        page.pack_start(self.credentials_box, False, False, 0)
+
+        self.settings_note = _note()
+        page.pack_start(self.settings_note, False, False, 0)
         return page
 
     def _build_move_page(self) -> Gtk.Widget:
@@ -691,6 +755,7 @@ class VpnWindow(Gtk.Window):
                     tunnel.state != protocol.DISCONNECTED
                 enabled["start"] = not qube.running
                 enabled["shutdown"] = qube.running
+                enabled["settings"] = qube.running
                 enabled["move"] = qube.is_client
             elif qube is not None and kind == model.CLIENT:
                 enabled["move"] = True
@@ -778,6 +843,112 @@ class VpnWindow(Gtk.Window):
         path = Gtk.TreePath.new_from_indices([select])
         self.profile_tree.set_cursor(path, None, False)
         self.accept_button.set_sensitive(True)
+
+    # -- settings --------------------------------------------------------
+    def open_settings(self) -> None:
+        name = self._selected_vpn()
+        if name is None or not self.snapshot.inventory.qubes[name].running:
+            return
+        self.target = name
+        self._settings = None
+        self.settings_header.set_text(f"Settings for {name}")
+        self.autoconnect_combo.remove_all()
+        self.credentials_combo.remove_all()
+        self.ping_entry.set_text("")
+        self.credentials_box.hide()
+        self.settings_note.set_text("Reading the settings…")
+        self._show_page(SETTINGS)
+        self.accept_button.set_sensitive(False)
+        run_in_thread(self.backend.profiles, name,
+                      on_done=lambda answer: self._settings_loaded(name, answer),
+                      on_error=self._action_failed)
+
+    def _settings_loaded(self, name: str, answer: protocol.Answer) -> None:
+        if self.page != SETTINGS or self.target != name:
+            return
+        self._settings = answer
+        autoconnect = answer.get("autoconnect")
+        self.autoconnect_combo.append("", "(none)")
+        for profile in answer.profiles:
+            self.autoconnect_combo.append(
+                profile.name, f"{profile.name} ({protocol.PROTOCOL_TEXT[profile.protocol]})")
+        if autoconnect and autoconnect not in {p.name for p in answer.profiles}:
+            self.autoconnect_combo.append(autoconnect, f"{autoconnect} (no such profile)")
+        self.autoconnect_combo.set_active_id(autoconnect or "")
+        self.ping_entry.set_text(answer.get("ping_target") or "")
+
+        stored = set(answer.credentials)
+        openvpn = [p.name for p in answer.profiles if p.protocol == "openvpn"]
+        if openvpn or protocol.DEFAULT_CREDENTIALS in stored:
+            for target, text in ((protocol.DEFAULT_CREDENTIALS,
+                                  "every OpenVPN profile without its own"),
+                                 *((p, p) for p in openvpn)):
+                self.credentials_combo.append(
+                    target, text + ("  ·  stored" if target in stored else ""))
+            self.credentials_combo.set_active(0)
+            self.credentials_box.show_all()
+        self.settings_note.set_text(
+            f"Saved in {name} (/rw/config/vpn, root only). The password goes from here "
+            f"to {name} once and is not kept in the manager; it is never read back. "
+            "Leave username and password empty to keep what is stored.")
+        self.accept_button.set_sensitive(True)
+        self.autoconnect_combo.grab_focus()
+
+    def _credentials_target_changed(self) -> None:
+        stored = self._settings is not None and \
+            self.credentials_combo.get_active_id() in self._settings.credentials
+        self.forget_check.set_active(False)
+        self.forget_check.set_sensitive(stored)
+
+    def _forget_toggled(self) -> None:
+        forget = self.forget_check.get_active()
+        for entry in (self.username_entry, self.password_entry):
+            if forget:
+                entry.set_text("")
+            entry.set_sensitive(not forget)
+
+    def _clear_secrets(self) -> None:
+        self.username_entry.set_text("")
+        self.password_entry.set_text("")
+        self.forget_check.set_active(False)
+
+    def _save_settings(self) -> None:
+        name, answer = self.target, self._settings
+        if name is None or answer is None:
+            return
+        changes: list[tuple] = []
+        autoconnect = self.autoconnect_combo.get_active_id() or None
+        if autoconnect != answer.get("autoconnect"):
+            changes.append((self.backend.set_autoconnect, name, autoconnect))
+        ping_target = self.ping_entry.get_text().strip() or None
+        if ping_target is not None and not protocol.valid_ipv4(ping_target):
+            self._show_error("The latency target must be an IPv4 address, or empty.")
+            return
+        if ping_target != answer.get("ping_target"):
+            changes.append((self.backend.set_ping_target, name, ping_target))
+        target = self.credentials_combo.get_active_id()
+        if target is not None:
+            profile = None if target == protocol.DEFAULT_CREDENTIALS else target
+            username = self.username_entry.get_text()
+            password = self.password_entry.get_text()
+            if self.forget_check.get_active():
+                changes.append((self.backend.set_credentials, name, profile, "", ""))
+            elif username or password:
+                if not (username and password):
+                    self._show_error("Give both a username and a password.")
+                    return
+                changes.append((self.backend.set_credentials, name, profile,
+                                username, password))
+        self._clear_secrets()
+        if not changes:
+            self.back()
+            return
+
+        def work():
+            for fn, *args in changes:
+                fn(*args)
+
+        self._run(f"Saving the settings of {name}…", work)
 
     def _connect_selected(self) -> None:
         _store, it = self.profile_tree.get_selection().get_selected()
@@ -891,6 +1062,8 @@ class VpnWindow(Gtk.Window):
         self._set_busy(False)
         if self.page == PROFILES:
             self.profiles_note.set_text("")
+        if self.page == SETTINGS:
+            self.settings_note.set_text("")
         self._show_error(str(exc))
         self.poller.poll_now(inventory=True)
 
@@ -919,6 +1092,9 @@ class VpnWindow(Gtk.Window):
 
     # -- pages and footer ------------------------------------------------
     def _show_page(self, page: str) -> None:
+        if page != SETTINGS:
+            # A typed password does not outlive the page.
+            self._clear_secrets()
         self.page = page
         self.stack.set_visible_child_name(page)
         left, right = BUTTONS[page]
@@ -964,13 +1140,16 @@ class VpnWindow(Gtk.Window):
                                        and self._set_footer(HINTS[self.page])) and False)
 
     def accept(self) -> None:
-        """The footer's right button: Refresh, Connect, Move or the confirmed action."""
+        """The footer's right button: Refresh, Connect, Save, Move or the
+        confirmed action."""
         if self._busy:
             return
         if self.page == OVERVIEW:
             self.refresh()
         elif self.page == PROFILES:
             self._connect_selected()
+        elif self.page == SETTINGS:
+            self._save_settings()
         elif self.page == MOVE:
             self._move_selected()
         elif self._confirmed is not None:

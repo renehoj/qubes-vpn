@@ -7,6 +7,8 @@ Admin API calls (see ``policy/30-qubes-vpn.policy`` for what each needs):
   ``admin.vm.tag.Get +vpn`` / ``+vpn-client``, ``admin.vm.CurrentState`` and
   ``admin.vm.property.Get +netvm`` / ``+ip`` per qube;
 * ``admin.vm.Start`` and ``admin.vm.Shutdown`` on VPN qubes;
+* the agents' ``vpn.*`` services over qrexec, ``vpn.Configure+<key>`` with
+  the new value on stdin;
 * the dom0 service ``vpn.SetNetvm+<net qube>`` on client qubes (see
   ``dom0/vpn.SetNetvm``), whose policy says which net qubes are allowed, or,
   with ``netvm_method = admin``, ``admin.vm.property.Set +netvm``, which it
@@ -112,5 +114,6 @@ class QubesAdminBackend(Backend):
         except qubesadmin.exc.QubesException as exc:
             raise BackendError(f"Could not change the net qube of {client}: {exc}") from exc
 
-    def _call(self, target: str, service: str, argument: str | None = None) -> bytes:
-        return self.qrexec.call(target, service, argument)
+    def _call(self, target: str, service: str, argument: str | None = None,
+              stdin: bytes | None = None) -> bytes:
+        return self.qrexec.call(target, service, argument, stdin)

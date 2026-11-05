@@ -39,6 +39,12 @@ _PROFILES = {
     "sys-vpn-de": [("de-fra-wg-001", "wireguard"), ("de-ber-ovpn", "openvpn")],
 }
 
+#: Settings each agent starts with: autoconnect, ping target, credentials stored.
+_SETTINGS = {
+    "sys-vpn": ("se-got-wg-001", None, {"default"}),
+    "sys-vpn-secure": ("work-gateway", "10.8.0.1", {"work-gateway"}),
+}
+
 #: Who starts connected, to what.
 _CONNECTED = {"sys-vpn": "se-got-wg-001", "sys-vpn-secure": "work-gateway"}
 
@@ -58,6 +64,9 @@ class _Agent:
         self.protocol: str | None = None
         self.profile: str | None = None
         self.since = 0.0
+        autoconnect, ping_target, credentials = _SETTINGS.get(name, (None, None, set()))
+        self.settings = {"autoconnect": autoconnect, "ping_target": ping_target}
+        self.credentials = set(credentials)
 
     def connect(self, profile: str, protocol: str) -> None:
         self.profile, self.protocol, self.since = profile, protocol, self.clock()
@@ -154,7 +163,8 @@ class MockBackend(Backend):
             row[3] = netvm
 
     # -- the agents ------------------------------------------------------
-    def _call(self, target: str, service: str, argument: str | None = None) -> bytes:
+    def _call(self, target: str, service: str, argument: str | None = None,
+              stdin: bytes | None = None) -> bytes:
         self._sleep(0.05)
         with self._lock:
             row = self._row(target)
@@ -168,8 +178,9 @@ class MockBackend(Backend):
             elif service == "vpn.Stats":
                 pairs = self._stats(target, agent)
             elif service == "vpn.ListProfiles":
-                pairs = [("profile", f"{n}:{p}") for n, p in _PROFILES[target]]
-                pairs += [("active", agent.profile)]
+                pairs = self._profiles(target, agent)
+            elif service == "vpn.Configure":
+                pairs = self._agent_configure(target, agent, argument, stdin or b"")
             elif service == "vpn.Connect":
                 profiles = dict(_PROFILES[target])
                 if argument not in profiles:
@@ -183,6 +194,42 @@ class MockBackend(Backend):
             else:
                 raise BackendError(f"{service} in {target} failed (exit 126): Request refused")
         return "".join(f"{k}={v}\n" for k, v in pairs if v is not None).encode("ascii")
+
+    @staticmethod
+    def _profiles(target: str, agent: _Agent) -> list[tuple[str, object]]:
+        pairs: list[tuple[str, object]] = [("profile", f"{n}:{p}") for n, p in _PROFILES[target]]
+        pairs += [("active", agent.profile), *agent.settings.items()]
+        pairs += [("credentials", name) for name in sorted(agent.credentials)]
+        return pairs
+
+    def _agent_configure(self, target: str, agent: _Agent, key: str | None,
+                         stdin: bytes) -> list[tuple[str, object]]:
+        """As the agent does it, without the files; checks a little less."""
+        text = stdin.decode("utf-8").removesuffix("\n")
+        profiles = dict(_PROFILES[target])
+        error = None
+        if key == "credentials":
+            lines = text.split("\n")
+            if len(lines) != 3 or bool(lines[1]) != bool(lines[2]):
+                error = "bad-credentials"
+            elif lines[0] != "default" and profiles.get(lines[0]) != "openvpn":
+                error = "unknown-profile" if lines[0] not in profiles else "not-openvpn"
+            elif lines[1]:
+                agent.credentials.add(lines[0])
+            else:
+                agent.credentials.discard(lines[0])
+        elif key == "autoconnect":
+            if text and text not in profiles:
+                error = "unknown-profile"
+            else:
+                agent.settings[key] = text or None
+        elif key == "ping_target":
+            agent.settings[key] = text or None
+        else:
+            error = "bad-argument"
+        if error:
+            return [("result", "error"), ("error", error)]
+        return [("result", "ok"), *self._profiles(target, agent)]
 
     def _traffic(self, name: str) -> tuple[int, int]:
         """Bytes ``name`` received and sent so far, from the clock."""

@@ -11,6 +11,14 @@ other unit first.
 
 Connecting writes the kill switch table before it starts the tunnel, and
 refuses to start one if nft fails.
+
+Settings (``vpn.Configure+<key>``, :meth:`Agent.configure`): a fixed list of
+keys, :data:`CONFIG_KEYS`, each with its own check. The value comes on stdin;
+an empty value removes the setting. ``autoconnect`` and ``ping_target`` go in
+``agent.conf``, rewritten in place (comments and other lines kept);
+``credentials`` writes or removes an OpenVPN ``.auth`` file. Nothing is ever
+read back but the names: ``vpn.ListProfiles`` says which profiles have
+credentials stored, never what they are.
 """
 
 from __future__ import annotations
@@ -25,11 +33,15 @@ import time
 
 from . import killswitch, openvpn, stats, wireguard
 from .output import Pairs
-from .profiles import (OPENVPN, PROTOCOLS, WIREGUARD, ProfileError, find_profile,
-                       list_profiles, valid_name)
+from .profiles import (MAX_PROFILES, OPENVPN, PROTOCOLS, WIREGUARD, ProfileError,
+                       find_profile, list_profiles, valid_name)
 from .system import Paths, Runner, read_text, remove, write_private
 
 LATENCY_TTL = 10.0
+#: What ``vpn.Configure+<key>`` may set.
+CONFIG_KEYS = ("autoconnect", "ping_target", "credentials")
+#: Longest value ``vpn.Configure`` reads from stdin.
+MAX_CONFIG_INPUT = 2048
 LOCK_TIMEOUT = 45.0
 DEFAULT_PING_TARGET = "1.1.1.1"
 
@@ -63,6 +75,10 @@ class Agent:
         active = self._active()
         if active is not None:
             pairs.append(("active", active["profile"]))
+        conf = self._conf()
+        pairs.append(("autoconnect", conf.get("autoconnect") or None))
+        pairs.append(("ping_target", conf.get("ping_target") or None))
+        pairs += [("credentials", name) for name in self._stored_credentials()]
         return pairs
 
     def connect(self, name: str) -> Pairs:
@@ -176,6 +192,80 @@ class Agent:
         os.makedirs(directory, mode=0o700, exist_ok=True)
         write_private(path, text)
         return [("result", "ok")]
+
+    def configure(self, key: str, data: bytes) -> Pairs:
+        """``vpn.Configure+<key>``: set ``key`` to the value on stdin (``data``).
+
+        Answers ``result=ok`` and then what ``vpn.ListProfiles`` says, so the
+        caller sees the new settings.
+        """
+        if key not in CONFIG_KEYS:
+            raise AgentError("bad-argument")
+        if len(data) > MAX_CONFIG_INPUT:
+            raise AgentError("bad-value")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise AgentError("bad-value") from None
+        if text.endswith("\n"):
+            text = text[:-1]
+        if any(c in text for c in "\r\0"):
+            raise AgentError("bad-value")
+        with self._locked():
+            if key == "credentials":
+                self._configure_credentials(text.split("\n"))
+            else:
+                if "\n" in text:
+                    raise AgentError("bad-value")
+                value = self._check_setting(key, text.strip())
+                self._write_conf(key, value)
+        return [("result", "ok"), *self.list_profiles()]
+
+    def _check_setting(self, key: str, value: str) -> str | None:
+        if not value:
+            return None
+        if key == "autoconnect":
+            try:
+                find_profile(value, self.paths.wireguard_dir, self.paths.openvpn_dir)
+            except ProfileError as exc:
+                raise AgentError(exc.code) from None
+            return value
+        try:
+            return str(ipaddress.IPv4Address(value))
+        except ValueError:
+            raise AgentError("bad-value") from None
+
+    def _configure_credentials(self, lines: list[str]) -> None:
+        """``<profile or default>``, username, password; both empty: remove."""
+        if len(lines) != 3:
+            raise AgentError("bad-credentials")
+        name, username, password = lines
+        if name != openvpn.DEFAULT_CREDENTIALS:
+            try:
+                profile = find_profile(name, self.paths.wireguard_dir, self.paths.openvpn_dir)
+            except ProfileError as exc:
+                raise AgentError(exc.code) from None
+            if profile.protocol != OPENVPN:
+                raise AgentError("not-openvpn")
+        if not username and not password:
+            remove(openvpn.credentials_path(self.paths.openvpn_dir, name))
+            return
+        self.set_credentials(name, username, password)
+
+    def _stored_credentials(self) -> list[str]:
+        """The names with a credentials file: ``default`` and profile names."""
+        try:
+            entries = os.listdir(self.paths.openvpn_dir)
+        except (FileNotFoundError, NotADirectoryError):
+            return []
+        names = []
+        for entry in sorted(entries):
+            stem, ext = os.path.splitext(entry)
+            path = os.path.join(self.paths.openvpn_dir, entry)
+            if ext == openvpn.CREDENTIALS_EXT and valid_name(stem) \
+                    and os.path.isfile(path) and not os.path.islink(path):
+                names.append(stem)
+        return names[:MAX_PROFILES]
 
     def openvpn_event(self, env: dict[str, str]) -> Pairs:
         """OpenVPN's ``--up``/``--down`` script: follow the pushed DNS servers.
@@ -299,6 +389,22 @@ class Agent:
             if sep:
                 conf[key.strip()] = value.strip()
         return conf
+
+    def _write_conf(self, key: str, value: str | None) -> None:
+        """Set ``key`` in agent.conf (None: remove it), keeping the other lines."""
+        lines = (read_text(self.paths.agent_conf) or "").splitlines()
+        kept, done = [], value is None
+        for line in lines:
+            name, sep, _rest = line.split("#", 1)[0].partition("=")
+            if sep and name.strip() == key:
+                if not done:
+                    kept.append(f"{key} = {value}")
+                    done = True
+                continue
+            kept.append(line)
+        if not done:
+            kept.append(f"{key} = {value}")
+        write_private(self.paths.agent_conf, "".join(f"{line}\n" for line in kept))
 
     def _ping_target(self, dns: list[str]) -> str:
         try:

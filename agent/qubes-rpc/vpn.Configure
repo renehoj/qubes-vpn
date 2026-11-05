@@ -1,0 +1,5 @@
+#!/bin/sh
+# qrexec service vpn.Configure+<key>: the key is $1 (and
+# QREXEC_SERVICE_ARGUMENT), the value is on stdin; the agent checks both.
+# See qubes_vpn_agent.service.
+exec @AGENT@ configure "${1:-}"
